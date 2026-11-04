@@ -32,6 +32,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -216,15 +217,15 @@ func main() {
 
 	// --- Hide Form Page ---
 	hideForm := tview.NewForm()
-	var hImg, hOut, hText, hPass string
+	var hImg, hOut, hSecretFile, hPass string
 
 	hideForm.AddInputField("Input Image (PNG):", "", 40, nil, func(text string) { hImg = text })
 	hideForm.AddInputField("Output Image (PNG):", "output.png", 40, nil, func(text string) { hOut = text })
-	hideForm.AddInputField("Secret Text:", "", 40, nil, func(text string) { hText = text })
+	hideForm.AddInputField("Secret File (.txt):", "", 40, nil, func(text string) { hSecretFile = text })
 	hideForm.AddPasswordField("Passphrase:", "", 40, '*', func(text string) { hPass = text })
 
 	hideForm.AddButton("Encrypt & Hide", func() {
-		if hImg == "" || hOut == "" || hText == "" || hPass == "" {
+		if hImg == "" || hOut == "" || hSecretFile == "" || hPass == "" {
 			statusBox.SetText("[red]Error: All fields must be filled out.[-]")
 			return
 		}
@@ -235,7 +236,14 @@ func main() {
 			return
 		}
 
-		encData, err := encrypt([]byte(hText), hPass)
+		// Read secret content directly from file
+		secretBytes, err := os.ReadFile(hSecretFile)
+		if err != nil {
+			statusBox.SetText(fmt.Sprintf("[red]Error reading secret file: %v[-]", err))
+			return
+		}
+
+		encData, err := encrypt(secretBytes, hPass)
 		if err != nil {
 			statusBox.SetText(fmt.Sprintf("[red]Encryption error: %v[-]", err))
 			return
@@ -247,7 +255,7 @@ func main() {
 			return
 		}
 
-		outFile, err := os.Create(hOut)
+        outFile, err := os.Create(hOut)
 		if err != nil {
 			statusBox.SetText(fmt.Sprintf("[red]Error creating output file: %v[-]", err))
 			return
@@ -259,7 +267,7 @@ func main() {
 			return
 		}
 
-		statusBox.SetText(fmt.Sprintf("[green]Success! Message hidden securely in '%s'.[-]", hOut))
+		statusBox.SetText(fmt.Sprintf("[green]Success! Secret file hidden securely in '%s'.[-]", hOut))
 	})
 	hideForm.AddButton("Quit", func() {
 		app.Stop()
@@ -308,7 +316,7 @@ func main() {
 	pages.AddPage("extract", extractForm, true, false)
 
 	menu := tview.NewList().
-		AddItem("Hide Message", "Encrypt text into a PNG", '1', func() {
+		AddItem("Hide Message", "Encrypt text file into a PNG", '1', func() {
 			pages.SwitchToPage("hide")
 		}).
 		AddItem("Extract Message", "Decrypt text from a PNG", '2', func() {
@@ -324,6 +332,19 @@ func main() {
 		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(pages, 0, 3, true).
 			AddItem(statusBox, 6, 1, false), 0, 3, false)
+
+	// Global Input Handler to toggle focus using the Tab key between Menu and Active Form
+	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyTab {
+			if app.GetFocus() == menu {
+				app.SetFocus(pages)
+			} else {
+				app.SetFocus(menu)
+			}
+			return nil
+		}
+		return event
+	})
 
 	if err := app.SetRoot(flex, true).EnableMouse(true).Run(); err != nil {
 		panic(err)
